@@ -1,0 +1,26 @@
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+    - gofmt
+    - goimports
+    - misspell
+    - unparam
+
+issues:
+  exclude-dirs:
+    - gen/go
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - unparam

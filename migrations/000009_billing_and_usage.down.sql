@@ -1,0 +1,7 @@
+-- 000009_billing_and_usage.down.sql
+DROP TABLE IF EXISTS invoice_lines CASCADE;
+DROP TABLE IF EXISTS invoices CASCADE;
+DROP TABLE IF EXISTS quotas CASCADE;
+DROP TABLE IF EXISTS usage_records CASCADE;
+DROP TABLE IF EXISTS subscriptions CASCADE;
+DROP TABLE IF EXISTS billing_plans CASCADE;

@@ -1,0 +1,39 @@
+# Build Stage
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apk add --no-cache git ca-certificates tzdata
+
+# Cache Go modules
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Compile static binary
+ARG VERSION=0.1.0
+ARG COMMIT=dev
+ARG BUILD_DATE=unknown
+
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-w -s -X 'github.com/aurora-vm/aurora/pkg/version.Version=${VERSION}' -X 'github.com/aurora-vm/aurora/pkg/version.GitCommit=${COMMIT}' -X 'github.com/aurora-vm/aurora/pkg/version.BuildDate=${BUILD_DATE}'" \
+    -o /bin/aurora-server ./cmd/aurora-server
+
+# Final Runtime Image
+FROM alpine:3.19
+
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /app
+
+COPY --from=builder /bin/aurora-server /usr/local/bin/aurora-server
+COPY migrations /app/migrations
+
+EXPOSE 8080 8443
+
+USER nobody:nobody
+
+ENTRYPOINT ["/usr/local/bin/aurora-server"]

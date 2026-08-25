@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package aurora.v1;
+
+import "aurora/v1/common.proto";
+
+option go_package = "github.com/aurora-vm/aurora/gen/go/aurora/v1;aurorav1";
+
+// Health service definition for Aurora Control Plane and Node Agents.
+service HealthService {
+  // Check returns the immediate status of a target component.
+  rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
+  
+  // Watch streams component status updates over a persistent channel.
+  rpc Watch(HealthCheckRequest) returns (stream HealthCheckResponse);
+}
+
+message HealthCheckRequest {
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  SystemStatus status = 1;
+  string message = 2;
+  string version = 3;
+  string commit = 4;
+  map<string, string> component_status = 5;
+}

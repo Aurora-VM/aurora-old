@@ -1,0 +1,434 @@
+syntax = "proto3";
+
+package aurora.v1;
+
+option go_package = "github.com/aurora-vm/aurora/gen/go/aurora/v1;aurorav1";
+
+import "google/protobuf/timestamp.proto";
+
+// NodeStatus represents the operational lifecycle state of a hypervisor node.
+enum NodeStatus {
+  NODE_STATUS_UNSPECIFIED = 0;
+  NODE_STATUS_ENROLLING = 1;
+  NODE_STATUS_ONLINE = 2;
+  NODE_STATUS_OFFLINE = 3;
+  NODE_STATUS_REVOKED = 4;
+  NODE_STATUS_MAINTENANCE = 5;
+}
+
+// InstanceType represents whether a guest is an OS container or a KVM virtual machine.
+enum InstanceType {
+  INSTANCE_TYPE_UNSPECIFIED = 0;
+  INSTANCE_TYPE_CONTAINER = 1;
+  INSTANCE_TYPE_VIRTUAL_MACHINE = 2;
+}
+
+// InstanceStatus represents the operational power/lifecycle state of an instance.
+enum InstanceStatus {
+  INSTANCE_STATUS_UNSPECIFIED = 0;
+  INSTANCE_STATUS_PENDING = 1;
+  INSTANCE_STATUS_CREATING = 2;
+  INSTANCE_STATUS_RUNNING = 3;
+  INSTANCE_STATUS_STOPPED = 4;
+  INSTANCE_STATUS_RESTARTING = 5;
+  INSTANCE_STATUS_FROZEN = 6;
+  INSTANCE_STATUS_ERROR = 7;
+  INSTANCE_STATUS_DELETING = 8;
+  INSTANCE_STATUS_DELETED = 9;
+}
+
+// NodeCapabilities describes the hypervisor host features and virtualization engines.
+message NodeCapabilities {
+  bool incus_supported = 1;
+  bool kvm_supported = 2;
+  bool zfs_supported = 3;
+  bool btrfs_supported = 4;
+  bool ovs_supported = 5;
+  string kernel_version = 6;
+  string architecture = 7;
+  string os_distribution = 8;
+  int32 cpu_cores = 9;
+  int64 total_memory_bytes = 10;
+  int64 total_storage_bytes = 11;
+}
+
+// NodeTelemetry describes current dynamic host metrics and resource utilization.
+message NodeTelemetry {
+  double cpu_usage_percent = 1;
+  int64 memory_used_bytes = 2;
+  int64 memory_free_bytes = 3;
+  int64 storage_used_bytes = 4;
+  int64 storage_free_bytes = 5;
+  double load_1m = 6;
+  double load_5m = 7;
+  double load_15m = 8;
+  int32 running_instances = 9;
+  int32 total_instances = 10;
+  google.protobuf.Timestamp timestamp = 11;
+}
+
+// ---------------- NODE ENROLLMENT ----------------
+
+message EnrollNodeRequest {
+  string enrollment_token = 1;      // One-time ephemeral enrollment secret
+  string node_name = 2;              // Hostname or desired node name
+  string fqdn = 3;                   // Fully qualified domain name or IP
+  bytes csr_pem = 4;                 // PKCS#10 Certificate Signing Request in PEM format
+  NodeCapabilities capabilities = 5; // Initial hardware & driver capabilities
+}
+
+message EnrollNodeResponse {
+  string node_id = 1;                // Assigned unique UUID for this node
+  bytes certificate_pem = 2;         // Signed X.509 client certificate
+  bytes ca_certificate_pem = 3;      // Internal Aurora Root CA certificate
+  string hub_grpc_endpoint = 4;      // Control Plane mTLS gRPC address
+  int32 heartbeat_interval_seconds = 5;
+}
+
+service NodeEnrollmentService {
+  rpc EnrollNode(EnrollNodeRequest) returns (EnrollNodeResponse);
+}
+
+// ---------------- BIDIRECTIONAL GATEWAY MESSAGES ----------------
+
+// ServerMessage is sent from the Control Plane Hub to the Node Agent.
+message ServerMessage {
+  string correlation_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  string protocol_version = 3; // e.g. "aurora.v1"
+
+  oneof payload {
+    HeartbeatAck heartbeat_ack = 10;
+    PingCommand ping_command = 11;
+    CollectTelemetryCommand telemetry_command = 12;
+    ApplyNodeConfigCommand config_command = 13;
+    RebootNodeCommand reboot_command = 14;
+    CancelCommand cancel_command = 15;
+
+    // Stage 4 Incus Virtualization Engine Commands
+    CreateInstanceCommand create_instance_command = 20;
+    StartInstanceCommand start_instance_command = 21;
+    StopInstanceCommand stop_instance_command = 22;
+    RestartInstanceCommand restart_instance_command = 23;
+    DeleteInstanceCommand delete_instance_command = 24;
+    UpdateInstanceSpecCommand update_instance_spec_command = 25;
+    GetInstanceMetricsCommand get_instance_metrics_command = 26;
+
+    // Stage 5 Advanced Networking & Firewall Commands
+    ConfigureNetworkCommand configure_network_command = 27;
+    ApplyFirewallRulesCommand apply_firewall_rules_command = 28;
+
+    // Stage 6 Storage Pools, Custom Volumes & Snapshots Commands
+    CreateVolumeCommand create_volume_command = 30;
+    ResizeVolumeCommand resize_volume_command = 31;
+    AttachVolumeCommand attach_volume_command = 32;
+    DetachVolumeCommand detach_volume_command = 33;
+    DeleteVolumeCommand delete_volume_command = 34;
+    CreateVolumeSnapshotCommand create_volume_snapshot_command = 35;
+    RestoreVolumeSnapshotCommand restore_volume_snapshot_command = 36;
+    DeleteVolumeSnapshotCommand delete_volume_snapshot_command = 37;
+
+    // Stage 9 Interactive Web Terminal & VNC Console Messages
+    ConsoleSessionMessage console_session_message = 40;
+
+    // Stage 10 Image Management & OS Template Commands
+    SyncImageCommand sync_image_command = 50;
+    VerifyImageCommand verify_image_command = 51;
+    DeleteImageCommand delete_image_command = 52;
+    GetImageAvailabilityCommand get_image_availability_command = 53;
+  }
+}
+
+// NodeMessage is sent from the Node Agent to the Control Plane Hub.
+message NodeMessage {
+  string correlation_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  string protocol_version = 3; // e.g. "aurora.v1"
+
+  oneof payload {
+    NodeReadyEvent ready_event = 10;
+    Heartbeat heartbeat = 11;
+    NodeTelemetry telemetry = 12;
+    CommandAck command_ack = 13;
+    CommandResult command_result = 14;
+    InstanceStatusEvent instance_status_event = 15;
+
+    // Stage 9 Interactive Web Terminal & VNC Console Messages
+    ConsoleSessionMessage console_session_message = 20;
+  }
+}
+
+// Heartbeat message sent periodically by node agents.
+message Heartbeat {
+  string node_id = 1;
+  int64 sequence_number = 2;
+  NodeTelemetry telemetry = 3;
+  NodeCapabilities capabilities = 4;
+  string agent_version = 5;
+}
+
+// HeartbeatAck sent back to the node confirming active connectivity.
+message HeartbeatAck {
+  int64 acknowledged_sequence = 1;
+  google.protobuf.Timestamp server_time = 2;
+  NodeStatus node_status = 3;
+  int32 heartbeat_interval_seconds = 4;
+}
+
+// NodeReadyEvent sent upon initial stream establishment.
+message NodeReadyEvent {
+  string node_id = 1;
+  string node_name = 2;
+  string agent_version = 3;
+  NodeCapabilities capabilities = 4;
+}
+
+// InstanceStatusEvent sent by agent when an instance state changes asynchronously.
+message InstanceStatusEvent {
+  string instance_id = 1;
+  string instance_name = 2;
+  InstanceStatus status = 3;
+  string ipv4_address = 4;
+  string ipv6_address = 5;
+  string message = 6;
+}
+
+// Typed Commands from Server to Node
+
+message PingCommand {
+  string payload = 1;
+}
+
+message CollectTelemetryCommand {
+  bool detailed = 1;
+}
+
+message ApplyNodeConfigCommand {
+  string config_json = 1;
+  bool maintenance_mode = 2;
+}
+
+message RebootNodeCommand {
+  int32 delay_seconds = 1;
+  string reason = 2;
+}
+
+message CancelCommand {
+  string target_correlation_id = 1;
+}
+
+// Stage 4 Typed Virtualization Commands
+
+message CreateInstanceCommand {
+  string instance_id = 1;
+  string instance_name = 2;
+  string instance_type = 3; // "container" or "virtual-machine"
+  int32 cpu_cores = 4;
+  int64 memory_bytes = 5;
+  int64 storage_bytes = 6;
+  string image = 7;
+  string config_json = 8;
+  bool start_after_create = 9;
+}
+
+message StartInstanceCommand {
+  string instance_id = 1;
+  string instance_name = 2;
+}
+
+message StopInstanceCommand {
+  string instance_id = 1;
+  string instance_name = 2;
+  bool force = 3;
+  int32 timeout_seconds = 4;
+}
+
+message RestartInstanceCommand {
+  string instance_id = 1;
+  string instance_name = 2;
+  bool force = 3;
+  int32 timeout_seconds = 4;
+}
+
+message DeleteInstanceCommand {
+  string instance_id = 1;
+  string instance_name = 2;
+  bool force = 3;
+}
+
+message UpdateInstanceSpecCommand {
+  string instance_id = 1;
+  string instance_name = 2;
+  int32 cpu_cores = 3;
+  int64 memory_bytes = 4;
+  int64 storage_bytes = 5;
+}
+
+message GetInstanceMetricsCommand {
+  string instance_id = 1;
+  string instance_name = 2;
+}
+
+// Stage 5 Networking & Firewall Commands
+
+message ConfigureNetworkCommand {
+  string instance_id = 1;
+  string instance_name = 2;
+  string interface_name = 3;
+  string ipv4_address = 4;
+  string ipv4_gateway = 5;
+  string ipv6_address = 6;
+  string ipv6_gateway = 7;
+  string mac_address = 8;
+  int32 vlan_id = 9;
+}
+
+message FirewallRule {
+  string id = 1;
+  string direction = 2;   // "inbound" or "outbound"
+  string action = 3;      // "allow" or "drop"
+  string protocol = 4;    // "tcp", "udp", "icmp", "all"
+  string port_range = 5;  // "80", "443", "1000-2000", "any"
+  string source_cidr = 6; // e.g. "0.0.0.0/0"
+  string dest_cidr = 7;   // e.g. "0.0.0.0/0"
+  int32 priority = 8;
+}
+
+message ApplyFirewallRulesCommand {
+  string instance_id = 1;
+  string instance_name = 2;
+  repeated FirewallRule rules = 3;
+}
+
+// Stage 6 Storage Pools, Custom Volumes & Snapshots Commands
+
+message CreateVolumeCommand {
+  string volume_id = 1;
+  string pool_name = 2;
+  string volume_name = 3;
+  int64 size_bytes = 4;
+  string content_type = 5; // "filesystem" or "block"
+}
+
+message ResizeVolumeCommand {
+  string volume_id = 1;
+  string pool_name = 2;
+  string volume_name = 3;
+  int64 new_size_bytes = 4;
+}
+
+message AttachVolumeCommand {
+  string instance_id = 1;
+  string instance_name = 2;
+  string pool_name = 3;
+  string volume_name = 4;
+  string mount_path = 5;
+  bool read_only = 6;
+}
+
+message DetachVolumeCommand {
+  string instance_id = 1;
+  string instance_name = 2;
+  string volume_name = 3;
+}
+
+message DeleteVolumeCommand {
+  string volume_id = 1;
+  string pool_name = 2;
+  string volume_name = 3;
+}
+
+message CreateVolumeSnapshotCommand {
+  string volume_id = 1;
+  string pool_name = 2;
+  string volume_name = 3;
+  string snapshot_name = 4;
+}
+
+message RestoreVolumeSnapshotCommand {
+  string volume_id = 1;
+  string pool_name = 2;
+  string volume_name = 3;
+  string snapshot_name = 4;
+}
+
+message DeleteVolumeSnapshotCommand {
+  string volume_id = 1;
+  string pool_name = 2;
+  string volume_name = 3;
+  string snapshot_name = 4;
+}
+
+// ---------------- STAGE 9 INTERACTIVE WEB TERMINAL & VNC CONSOLE ----------------
+
+enum ConsoleMessageType {
+  CONSOLE_MESSAGE_TYPE_UNSPECIFIED = 0;
+  CONSOLE_MESSAGE_TYPE_START = 1;      // Request to launch interactive session
+  CONSOLE_MESSAGE_TYPE_DATA = 2;       // Bidirectional: Raw PTY/VNC byte stream
+  CONSOLE_MESSAGE_TYPE_RESIZE = 3;     // PTY terminal window resize (cols x rows)
+  CONSOLE_MESSAGE_TYPE_PING = 4;       // Keep-alive ping
+  CONSOLE_MESSAGE_TYPE_CLOSE = 5;      // Session terminated
+}
+
+message ConsoleSessionMessage {
+  string session_id = 1;               // Unique WebSocket / interactive session UUID
+  string instance_id = 2;              // Target instance UUID
+  string instance_name = 3;            // Target instance name
+  ConsoleMessageType type = 4;         // Message sub-type
+  bytes data = 5;                      // Binary payload (terminal bytes or VNC packets)
+  int32 cols = 6;                      // PTY columns width
+  int32 rows = 7;                      // PTY rows height
+  string command = 8;                  // e.g. "/bin/bash", "/bin/sh", "vnc"
+  string close_reason = 9;             // Optional reason / exit code on close
+  map<string, string> env = 10;        // Environment variables (TERM=xterm-256color, etc.)
+}
+
+// ---------------- STAGE 10 IMAGE MANAGEMENT & OS TEMPLATE COMMANDS ----------------
+
+message SyncImageCommand {
+  string image_id = 1;
+  string template_id = 2;
+  string incus_fingerprint = 3;
+  string image_alias = 4;
+  string source_remote = 5;
+  string source_url = 6;
+  string architecture = 7;
+  string instance_type = 8;
+  string expected_checksum = 9;
+}
+
+message VerifyImageCommand {
+  string image_id = 1;
+  string incus_fingerprint = 2;
+  string expected_checksum = 3;
+}
+
+message DeleteImageCommand {
+  string image_id = 1;
+  string incus_fingerprint = 2;
+  string image_alias = 3;
+}
+
+message GetImageAvailabilityCommand {
+  string node_id = 1;
+}
+
+// Typed Command Responses from Node to Server
+
+message CommandAck {
+  string command_correlation_id = 1;
+  bool accepted = 2;
+  string error_message = 3;
+}
+
+message CommandResult {
+  string command_correlation_id = 1;
+  bool success = 2;
+  string error_message = 3;
+  bytes result_payload_json = 4;
+}
+
+// NodeGatewayService manages the persistent outbound mTLS stream from nodes.
+service NodeGatewayService {
+  rpc StreamTunnel(stream NodeMessage) returns (stream ServerMessage);
+}

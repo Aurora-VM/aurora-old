@@ -1,0 +1,45 @@
+# Environment files & Secrets
+.env
+*.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# Binaries & Build Output
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test & Coverage Artifacts
+*.out
+*.test
+coverage/
+.coverage
+*.prof
+
+# Logs & Temporary Files
+*.log
+logs/
+tmp/
+*.tmp
+*.dump
+*.dump.sha256
+
+# Dependency Directories
+node_modules/
+vendor/
+
+# IDE & Editor Configurations
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

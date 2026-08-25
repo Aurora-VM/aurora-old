@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aurora-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aurora
+      POSTGRES_PASSWORD: aurora_dev_password
+      POSTGRES_DB: aurora
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aurora -d aurora"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  valkey:
+    image: valkey/valkey:7.2-alpine
+    container_name: aurora-valkey-dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkeydata:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  valkeydata:
