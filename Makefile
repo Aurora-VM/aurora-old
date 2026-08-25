@@ -10,7 +10,7 @@ all: proto build test
 ## Protobuf Generation
 proto:
 	@echo "==> Generating Protobuf bindings..."
-	@export PATH="$$PATH:$$(go env GOPATH)/bin"; \
+	@export PATH="$$(go env GOPATH)/bin:$$PATH"; \
 	protoc \
 		--proto_path=proto \
 		--go_out=gen/go \
