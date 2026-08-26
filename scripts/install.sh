@@ -353,19 +353,19 @@ prompt_secret() {
 
 print_banner() {
 	echo -e "${CYAN}${BOLD}"
-	echo "     ___         ___    ___  ___  ___ "
-	echo "    /   | __  __/   |  /   |/   |/   |"
-	echo "   / /| |/ / / / /| | / /| / /| / /| |"
-	echo "  / ___ / /_/ / ___ |/ ___/ ___/ ___ |"
-	echo " /_/  |_\__,_/_/  |_/_/  /_/  /_/  |_|"
+	echo "     ___   __  __ ____   ____  ____     ___ "
+	echo "    /   | / / / // __ \ / __ \/ __ \   /   |"
+	echo "   / /| |/ / / // /_/ // / / / /_/ /  / /| |"
+	echo "  / ___ / /_/ // _, _// /_/ / _, _/  / ___ |"
+	echo " /_/  |_\__,_//_/ |_| \____/_/ |_|  /_/  |_|"
 	echo -e "${NC}"
 	echo -e "${BOLD} Project Aurora — Cloud Control Plane & Distributed Hypervisor${NC}"
 	echo -e " Platform Version: ${GREEN}v${SCRIPT_VERSION}${NC} | Linux (Ubuntu / Debian) | Incus 6.x"
 	echo ""
 	echo -e "${CYAN}${BOLD}┌──────────────────────────────────────────────────────────────────┐${NC}"
-	echo -e "${CYAN}${BOLD}│${NC}  🌐 Website:  ${BLUE}https://aurora-vm.org${NC}                                 ${CYAN}${BOLD}│${NC}"
-	echo -e "${CYAN}${BOLD}│${NC}  💻 GitHub:   ${BLUE}https://github.com/aurora-vm/aurora${NC}                   ${CYAN}${BOLD}│${NC}"
-	echo -e "${CYAN}${BOLD}│${NC}  📚 Docs:     ${BLUE}https://docs.aurora-vm.org${NC}                            ${CYAN}${BOLD}│${NC}"
+	echo -e "${CYAN}${BOLD}│${NC}  Website:  ${BLUE}https://aurora-vm.org${NC}                                  ${CYAN}${BOLD}│${NC}"
+	echo -e "${CYAN}${BOLD}│${NC}  GitHub:   ${BLUE}https://github.com/aurora-vm/aurora${NC}                    ${CYAN}${BOLD}│${NC}"
+	echo -e "${CYAN}${BOLD}│${NC}  Docs:     ${BLUE}https://docs.aurora-vm.org${NC}                             ${CYAN}${BOLD}│${NC}"
 	echo -e "${CYAN}${BOLD}└──────────────────────────────────────────────────────────────────┘${NC}"
 }
 
@@ -591,6 +591,63 @@ ensure_base_packages() {
 	else
 		log_success "All essential packages are already installed."
 	fi
+}
+
+ensure_go_compiler() {
+	if command -v go >/dev/null 2>&1; then
+		return 0
+	fi
+	if [ -x /usr/local/go/bin/go ]; then
+		export PATH="/usr/local/go/bin:$PATH"
+		return 0
+	fi
+
+	log_step "Go compiler not found. Automatically installing Go for binary compilation..."
+	export DEBIAN_FRONTEND=noninteractive
+
+	local go_arch="amd64"
+	local uname_m
+	uname_m=$(uname -m)
+	case "$uname_m" in
+	x86_64) go_arch="amd64" ;;
+	aarch64|arm64) go_arch="arm64" ;;
+	*) go_arch="amd64" ;;
+	esac
+
+	local go_tar="go1.23.6.linux-${go_arch}.tar.gz"
+	local go_url="https://go.dev/dl/${go_tar}"
+
+	if curl -fsSL "$go_url" -o "/tmp/${go_tar}" >>"$LOG_FILE" 2>&1; then
+		rm -rf /usr/local/go
+		tar -C /usr/local -xzf "/tmp/${go_tar}" >>"$LOG_FILE" 2>&1
+		rm -f "/tmp/${go_tar}"
+		export PATH="/usr/local/go/bin:$PATH"
+		ln -sf /usr/local/go/bin/go /usr/local/bin/go 2>/dev/null || true
+		ln -sf /usr/local/go/bin/go /usr/bin/go 2>/dev/null || true
+		log_success "Go 1.23.6 binary distribution installed."
+		return 0
+	fi
+
+	# Fallback to apt-get
+	if apt-get install -y -qq golang-go >>"$LOG_FILE" 2>&1; then
+		if command -v go >/dev/null 2>&1; then
+			log_success "Go installed via package manager."
+			return 0
+		fi
+	fi
+
+	log_error "Could not install Go compiler automatically. Please install Go >= 1.22."
+	return 1
+}
+
+ensure_node_and_npm() {
+	if command -v npm >/dev/null 2>&1; then
+		return 0
+	fi
+
+	log_step "Node.js & npm not found. Installing for frontend compilation..."
+	export DEBIAN_FRONTEND=noninteractive
+	apt-get install -y -qq nodejs npm >>"$LOG_FILE" 2>&1 || true
 }
 
 # ==============================================================================
@@ -840,21 +897,19 @@ EOF
 	if [ -f "$src_dir/bin/aurora-server" ]; then
 		cp -f "$src_dir/bin/aurora-server" /usr/local/bin/aurora-server
 		log_success "Installed binary from local build (bin/aurora-server)."
-	elif [ -f "$src_dir/cmd/aurora-server/main.go" ] && command -v go >/dev/null 2>&1; then
+	elif [ -f "$src_dir/cmd/aurora-server/main.go" ]; then
+		ensure_go_compiler
 		log_info "Compiling aurora-server with Go..."
 		(cd "$src_dir" && CGO_ENABLED=0 go build -ldflags="-w -s -X 'github.com/aurora-vm/aurora/pkg/version.Version=${SCRIPT_VERSION}'" -o /usr/local/bin/aurora-server ./cmd/aurora-server)
 		log_success "Compiled and installed /usr/local/bin/aurora-server."
-	elif command -v go >/dev/null 2>&1; then
+	else
+		ensure_go_compiler
 		log_info "Building from remote repository..."
 		git clone https://github.com/aurora-vm/aurora.git /tmp/aurora-build >>"$LOG_FILE" 2>&1
 		(cd /tmp/aurora-build && CGO_ENABLED=0 go build -ldflags="-w -s -X 'github.com/aurora-vm/aurora/pkg/version.Version=${SCRIPT_VERSION}'" -o /usr/local/bin/aurora-server ./cmd/aurora-server)
 		cp -r /tmp/aurora-build/migrations/* "$CONFIG_DIR/migrations/"
 		rm -rf /tmp/aurora-build
 		log_success "Built /usr/local/bin/aurora-server from remote source."
-	else
-		log_error "Go compiler not found and pre-compiled bin/aurora-server missing."
-		log_info "Please install Go >= 1.22 or build binaries with 'make build'."
-		return 1
 	fi
 	chmod 755 /usr/local/bin/aurora-server
 
@@ -867,12 +922,13 @@ EOF
 
 	# 5. Frontend SPA Assets
 	log_step "Deploying Web Portal Single Page Application..."
-	if [ -d "$src_dir/web/dist" ]; then
+	if [ -d "$src_dir/web/dist" ] && [ -f "$src_dir/web/dist/index.html" ]; then
 		mkdir -p "$WEB_ROOT"
 		cp -r "$src_dir/web/dist/"* "$WEB_ROOT/"
 		chown -R www-data:www-data /var/www/aurora 2>/dev/null || chown -R aurora:aurora /var/www/aurora
 		log_success "Copied pre-built frontend bundle to $WEB_ROOT."
-	elif [ -d "$src_dir/web" ] && command -v npm >/dev/null 2>&1; then
+	elif [ -d "$src_dir/web" ]; then
+		ensure_node_and_npm
 		log_info "Compiling React SPA frontend..."
 		(cd "$src_dir/web" && npm ci >>"$LOG_FILE" 2>&1 && npm run build >>"$LOG_FILE" 2>&1)
 		mkdir -p "$WEB_ROOT"
@@ -1021,11 +1077,13 @@ install_hypervisor_agent() {
 	if [ -f "$src_dir/bin/aurora-agent" ]; then
 		cp -f "$src_dir/bin/aurora-agent" /usr/local/bin/aurora-agent
 		log_success "Installed binary from local build (bin/aurora-agent)."
-	elif [ -f "$src_dir/cmd/aurora-agent/main.go" ] && command -v go >/dev/null 2>&1; then
+	elif [ -f "$src_dir/cmd/aurora-agent/main.go" ]; then
+		ensure_go_compiler
 		log_info "Building aurora-agent with Go..."
 		(cd "$src_dir" && CGO_ENABLED=0 go build -ldflags="-w -s -X 'github.com/aurora-vm/aurora/pkg/version.Version=${SCRIPT_VERSION}'" -o /usr/local/bin/aurora-agent ./cmd/aurora-agent)
 		log_success "Compiled and installed /usr/local/bin/aurora-agent."
-	elif command -v go >/dev/null 2>&1; then
+	else
+		ensure_go_compiler
 		git clone https://github.com/aurora-vm/aurora.git /tmp/aurora-agent-build >>"$LOG_FILE" 2>&1
 		(cd /tmp/aurora-agent-build && CGO_ENABLED=0 go build -ldflags="-w -s -X 'github.com/aurora-vm/aurora/pkg/version.Version=${SCRIPT_VERSION}'" -o /usr/local/bin/aurora-agent ./cmd/aurora-agent)
 		rm -rf /tmp/aurora-agent-build
