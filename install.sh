@@ -23,6 +23,7 @@ for arg in "$@"; do
 		echo "  --enrollment-token <token>              Single-use node enrollment token"
 		echo "  --skip-os-check                         Bypass OS compatibility check"
 		echo "  --skip-system-update                    Skip apt update & system package upgrade"
+		echo "  --skip-zabbly-repo                      Skip configuring Zabbly Incus repository"
 		echo "  --non-interactive, -y                   Run in non-interactive batch mode"
 		echo "  --help, -h                              Display this help menu"
 		echo ""
@@ -63,6 +64,7 @@ BOLD=$'\033[1m'
 ROLE=""
 SKIP_OS_CHECK=false
 SKIP_SYSTEM_UPDATE=false
+SKIP_ZABBLY_REPO=false
 NON_INTERACTIVE=false
 DOMAIN=""
 ADMIN_EMAIL=""
@@ -116,6 +118,10 @@ while [[ $# -gt 0 ]]; do
 		SKIP_SYSTEM_UPDATE=true
 		shift
 		;;
+	--skip-zabbly-repo)
+		SKIP_ZABBLY_REPO=true
+		shift
+		;;
 	--non-interactive|-y)
 		NON_INTERACTIVE=true
 		shift
@@ -136,6 +142,7 @@ while [[ $# -gt 0 ]]; do
 		echo "  --enrollment-token <token>              Single-use node enrollment token"
 		echo "  --skip-os-check                         Bypass OS compatibility check"
 		echo "  --skip-system-update                    Skip apt update & system package upgrade"
+		echo "  --skip-zabbly-repo                      Skip configuring Zabbly Incus repository"
 		echo "  --non-interactive, -y                   Run in non-interactive batch mode"
 		echo "  --help, -h                              Display this help menu"
 		echo ""
@@ -539,6 +546,47 @@ EOF
 # ==============================================================================
 #  2. Hypervisor Node Agent Installation
 # ==============================================================================
+setup_zabbly_incus_repo() {
+	if [ "$SKIP_ZABBLY_REPO" = true ]; then
+		log_warn "Zabbly Incus repository setup skipped via --skip-zabbly-repo."
+		return 0
+	fi
+
+	if [ -f /etc/apt/sources.list.d/zabbly-incus-lts-6.0.sources ] || [ -f /etc/apt/sources.list.d/zabbly-incus-lts-6.0.list ]; then
+		log_info "Zabbly Incus repository is already configured."
+		return 0
+	fi
+
+	log_step "Configuring official Zabbly Incus 6.x repository..."
+	mkdir -p /etc/apt/keyrings
+	if curl -fsSL https://pkgs.zabbly.com/key.asc -o /etc/apt/keyrings/zabbly.asc >>"$LOG_FILE" 2>&1; then
+		local codename=""
+		if [ -f /etc/os-release ]; then
+			codename=$(. /etc/os-release && echo "${VERSION_CODENAME:-}")
+		fi
+		if [ -z "$codename" ]; then
+			codename=$(lsb_release -cs 2>/dev/null || echo "noble")
+		fi
+		local arch
+		arch=$(dpkg --print-architecture 2>/dev/null || echo "amd64")
+
+		cat <<EOF | tee /etc/apt/sources.list.d/zabbly-incus-lts-6.0.sources >/dev/null
+Enabled: yes
+Types: deb
+URIs: https://pkgs.zabbly.com/incus/lts-6.0
+Suites: ${codename}
+Components: main
+Architectures: ${arch}
+Signed-By: /etc/apt/keyrings/zabbly.asc
+EOF
+		export DEBIAN_FRONTEND=noninteractive
+		apt-get update -qq >>"$LOG_FILE" 2>&1 || log_warn "apt-get update with Zabbly repo returned non-zero, continuing..."
+		log_success "Zabbly Incus LTS 6.0 repository configured."
+	else
+		log_warn "Could not fetch Zabbly GPG key; attempting installation with default package repositories."
+	fi
+}
+
 install_hypervisor_agent() {
 	print_banner
 	draw_hr
@@ -562,7 +610,8 @@ install_hypervisor_agent() {
 	modprobe kvm_intel >>"$LOG_FILE" 2>&1 || modprobe kvm_amd >>"$LOG_FILE" 2>&1 || true
 	modprobe vhost_net >>"$LOG_FILE" 2>&1 || true
 
-	# 3. Install Incus 6.x
+	# 3. Configure Zabbly Repo & Install Incus 6.x
+	setup_zabbly_incus_repo
 	log_step "Installing Incus 6.x virtualization daemon..."
 	export DEBIAN_FRONTEND=noninteractive
 	run_with_spinner "Installing Incus and ZFS utilities" "Incus packages installed." \

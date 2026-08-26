@@ -291,14 +291,29 @@ Each hypervisor node runs `aurora-agent` alongside the local Incus daemon.
 ### 6.1 Install & Initialize Incus 6.x
 
 ```bash
-# 1. Install Incus on Ubuntu 24.04 / 22.04
-sudo apt update
-sudo apt install -y incus incus-tools zfsutils-linux
+# 1. Configure official Zabbly Incus LTS 6.0 repository (recommended for latest Incus 6.x / required on Debian & Ubuntu 22.04)
+sudo mkdir -p /etc/apt/keyrings
+sudo curl -fsSL https://pkgs.zabbly.com/key.asc -o /etc/apt/keyrings/zabbly.asc
 
-# 2. Add root / service users to the incus-admin group
+sudo tee /etc/apt/sources.list.d/zabbly-incus-lts-6.0.sources << 'EOF'
+Enabled: yes
+Types: deb
+URIs: https://pkgs.zabbly.com/incus/lts-6.0
+Suites: noble
+Components: main
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/zabbly.asc
+EOF
+# (Replace 'noble' and 'amd64' with your release codename and architecture if different)
+
+# 2. Install Incus and storage utilities
+sudo apt update
+sudo apt install -y incus incus-tools zfsutils-linux bridge-utils
+
+# 3. Add root / service users to the incus-admin group
 sudo usermod -aG incus-admin aurora
 
-# 3. Initialize Incus storage pool and bridge network
+# 4. Initialize Incus storage pool and bridge network
 sudo incus admin init --auto \
   --storage-backend zfs \
   --storage-pool default \
