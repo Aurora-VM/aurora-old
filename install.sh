@@ -198,27 +198,37 @@ log_init() {
 
 log_info() {
 	echo -e "${BLUE}[INFO]${NC} $1"
-	echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] [INFO] $1" >>"$LOG_FILE"
+	if [ -d "$LOG_DIR" ]; then
+		echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] [INFO] $1" >>"$LOG_FILE" 2>/dev/null || true
+	fi
 }
 
 log_success() {
 	echo -e "${GREEN}[ OK ]${NC} $1"
-	echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] [OK] $1" >>"$LOG_FILE"
+	if [ -d "$LOG_DIR" ]; then
+		echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] [OK] $1" >>"$LOG_FILE" 2>/dev/null || true
+	fi
 }
 
 log_warn() {
 	echo -e "${YELLOW}[WARN]${NC} $1"
-	echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] [WARN] $1" >>"$LOG_FILE"
+	if [ -d "$LOG_DIR" ]; then
+		echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] [WARN] $1" >>"$LOG_FILE" 2>/dev/null || true
+	fi
 }
 
 log_error() {
 	echo -e "${RED}[FAIL]${NC} $1"
-	echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] [ERROR] $1" >>"$LOG_FILE"
+	if [ -d "$LOG_DIR" ]; then
+		echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] [ERROR] $1" >>"$LOG_FILE" 2>/dev/null || true
+	fi
 }
 
 log_step() {
 	echo -e "${CYAN}${BOLD}==> $1${NC}"
-	echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] [STEP] $1" >>"$LOG_FILE"
+	if [ -d "$LOG_DIR" ]; then
+		echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] [STEP] $1" >>"$LOG_FILE" 2>/dev/null || true
+	fi
 }
 
 run_with_spinner() {
@@ -290,7 +300,9 @@ handle_unexpected_error() {
 
 	log_error "Unexpected failure (exit code: $exit_code, line: $line_no)."
 	log_error "Failing command: $failed_command"
-	echo "[ERROR_CONTEXT] exit_code=$exit_code line=$line_no command=$failed_command" >>"$LOG_FILE"
+	if [ -d "$LOG_DIR" ]; then
+		echo "[ERROR_CONTEXT] exit_code=$exit_code line=$line_no command=$failed_command" >>"$LOG_FILE" 2>/dev/null || true
+	fi
 	support_hint
 	exit "$exit_code"
 }
@@ -1638,7 +1650,8 @@ uninstall_aurora() {
 	rm -f /usr/local/bin/aurora /usr/local/bin/aurora-server /usr/local/bin/aurora-agent
 	rm -rf "$CONFIG_DIR" "$STATE_DIR" "$LOG_DIR"
 
-	log_success "Project Aurora platform has been uninstalled."
+	echo -e "${GREEN}[ OK ]${NC} Project Aurora platform has been uninstalled."
+	draw_hr
 }
 
 # ==============================================================================
