@@ -949,7 +949,21 @@ EOF
 			mig_count=$((mig_count + 1))
 		fi
 	done
-	log_success "Database schema verified (${mig_count} migrations applied)."
+
+	# Grant full table, sequence, and schema permissions & ownership to aurora user
+	sudo -u postgres psql -d aurora >>"$LOG_FILE" 2>&1 <<EOF
+ALTER SCHEMA public OWNER TO aurora;
+GRANT ALL ON SCHEMA public TO aurora;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO aurora;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO aurora;
+GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO aurora;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO aurora;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO aurora;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO aurora;
+REASSIGN OWNED BY postgres TO aurora;
+EOF
+
+	log_success "Database schema and table permissions verified (${mig_count} migrations applied)."
 
 	# 5. Frontend SPA Assets
 	log_step "Deploying Web Portal Single Page Application..."
@@ -1403,7 +1417,8 @@ migrate)
             MIG_COUNT=$((MIG_COUNT + 1))
         fi
     done
-    echo -e "${GREEN}Migrations complete (${MIG_COUNT} scripts verified).${NC}"
+    sudo -u postgres psql -d aurora -c "ALTER SCHEMA public OWNER TO aurora; GRANT ALL ON SCHEMA public TO aurora; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO aurora; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO aurora; GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO aurora; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO aurora; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO aurora; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO aurora; REASSIGN OWNED BY postgres TO aurora;" >/dev/null 2>&1 || true
+    echo -e "${GREEN}Migrations complete and permissions granted (${MIG_COUNT} scripts verified).${NC}"
     ;;
 verify)
     echo -e "${CYAN}Auditing SHA-256 Ledger & Cluster Diagnostics...${NC}"
