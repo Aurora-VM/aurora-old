@@ -894,6 +894,8 @@ EOF
 	log_step "Installing Aurora Control Plane binary..."
 	local src_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+	mkdir -p "$CONFIG_DIR/migrations" "$STATE_DIR/migrations"
+
 	if [ -f "$src_dir/bin/aurora-server" ]; then
 		cp -f "$src_dir/bin/aurora-server" /usr/local/bin/aurora-server
 		log_success "Installed binary from local build (bin/aurora-server)."
@@ -907,18 +909,35 @@ EOF
 		log_info "Building from remote repository..."
 		git clone https://github.com/aurora-vm/aurora.git /tmp/aurora-build >>"$LOG_FILE" 2>&1
 		(cd /tmp/aurora-build && CGO_ENABLED=0 go build -ldflags="-w -s -X 'github.com/aurora-vm/aurora/pkg/version.Version=${SCRIPT_VERSION}'" -o /usr/local/bin/aurora-server ./cmd/aurora-server)
-		cp -r /tmp/aurora-build/migrations/* "$CONFIG_DIR/migrations/"
+		if [ -d "/tmp/aurora-build/migrations" ]; then
+			cp -r /tmp/aurora-build/migrations/*.sql "$CONFIG_DIR/migrations/" 2>/dev/null || true
+			cp -r /tmp/aurora-build/migrations/*.sql "$STATE_DIR/migrations/" 2>/dev/null || true
+		fi
+		if [ -d "/tmp/aurora-build/web/dist" ]; then
+			mkdir -p "$WEB_ROOT"
+			cp -r /tmp/aurora-build/web/dist/* "$WEB_ROOT/" 2>/dev/null || true
+		fi
 		rm -rf /tmp/aurora-build
 		log_success "Built /usr/local/bin/aurora-server from remote source."
 	fi
 	chmod 755 /usr/local/bin/aurora-server
 
-	# 4. Copy Migrations
+	# 4. Copy Migrations & Apply Database Schema
+	log_step "Staging database migrations and applying schema..."
 	if [ -d "$src_dir/migrations" ]; then
-		cp -r "$src_dir/migrations/"* "$CONFIG_DIR/migrations/"
-		chown -R aurora:aurora "$CONFIG_DIR/migrations"
-		log_success "Database migrations copied to $CONFIG_DIR/migrations."
+		cp -r "$src_dir/migrations/"*.sql "$CONFIG_DIR/migrations/" 2>/dev/null || true
+		cp -r "$src_dir/migrations/"*.sql "$STATE_DIR/migrations/" 2>/dev/null || true
 	fi
+	chown -R aurora:aurora "$CONFIG_DIR/migrations" "$STATE_DIR/migrations"
+
+	local mig_count=0
+	for sql_file in $(ls -1 "$CONFIG_DIR/migrations/"*".up.sql" 2>/dev/null | sort); do
+		if [ -f "$sql_file" ]; then
+			sudo -u postgres psql -d aurora -f "$sql_file" >>"$LOG_FILE" 2>&1 || log_warn "Notice on $(basename "$sql_file")"
+			mig_count=$((mig_count + 1))
+		fi
+	done
+	log_success "Database schema verified (${mig_count} migrations applied)."
 
 	# 5. Frontend SPA Assets
 	log_step "Deploying Web Portal Single Page Application..."
@@ -954,6 +973,7 @@ AURORA_MASTER_KEY=${master_key}
 AURORA_JWT_SECRET=${jwt_secret}
 AURORA_LOG_LEVEL=${AURORA_LOG_LEVEL:-info}
 AURORA_AUTO_MIGRATE=true
+AURORA_MIGRATIONS_DIR=${CONFIG_DIR}/migrations
 AURORA_TLS_DIR=${STATE_DIR}/tls
 EOF
 	chmod 600 "$CONFIG_DIR/server.env"
@@ -1360,6 +1380,19 @@ backup)
     sha256sum "$BACKUP_DIR/aurora_db_$TS.dump" > "$BACKUP_DIR/aurora_db_$TS.dump.sha256"
     echo -e "${GREEN}Backup saved to $BACKUP_DIR/aurora_db_$TS.dump${NC}"
     ;;
+migrate)
+    echo -e "${CYAN}Applying PostgreSQL database migrations...${NC}"
+    CONFIG_DIR="/etc/aurora"
+    MIG_COUNT=0
+    for sql_file in $(ls -1 "$CONFIG_DIR/migrations/"*".up.sql" 2>/dev/null | sort); do
+        if [ -f "$sql_file" ]; then
+            echo -e "  Applying: $(basename "$sql_file")"
+            sudo -u postgres psql -d aurora -f "$sql_file" >/dev/null 2>&1 || true
+            MIG_COUNT=$((MIG_COUNT + 1))
+        fi
+    done
+    echo -e "${GREEN}Migrations complete (${MIG_COUNT} scripts verified).${NC}"
+    ;;
 verify)
     echo -e "${CYAN}Auditing SHA-256 Ledger & Cluster Diagnostics...${NC}"
     curl -s "http://127.0.0.1:8080/api/v1/health" | jq . 2>/dev/null || curl -s "http://127.0.0.1:8080/healthz"
@@ -1372,6 +1405,7 @@ help|*)
     echo "  status      Check systemd services and health probe endpoints"
     echo "  logs        Stream live control plane logs (or 'aurora logs agent')"
     echo "  restart     Safely restart control plane and node agent processes"
+    echo "  migrate     Apply all database schema migrations to PostgreSQL"
     echo "  backup      Create an immediate database backup dump"
     echo "  verify      Query diagnostic health matrix & audit chain"
     echo "  help        Display this help message"

@@ -17,14 +17,15 @@ type ServerConfig struct {
 	RedisURL    string `json:"-"` // Omit from JSON serialization
 	MasterKey   string `json:"-"` // Omit from JSON serialization
 	JWTSecret   string `json:"-"` // Omit from JSON serialization
-	LogLevel    string `json:"logLevel"`
-	AutoMigrate bool   `json:"autoMigrate"`
+	LogLevel      string `json:"logLevel"`
+	AutoMigrate   bool   `json:"autoMigrate"`
+	MigrationsDir string `json:"migrationsDir"`
 }
 
 // String provides a safe, secret-masked string representation of ServerConfig.
 func (c *ServerConfig) String() string {
-	return fmt.Sprintf("ServerConfig{Env: %s, HTTPPort: %d, GRPCPort: %d, DatabaseURL: %s, RedisURL: %s, LogLevel: %s, AutoMigrate: %t}",
-		c.Env, c.HTTPPort, c.GRPCPort, MaskURL(c.DatabaseURL), MaskURL(c.RedisURL), c.LogLevel, c.AutoMigrate)
+	return fmt.Sprintf("ServerConfig{Env: %s, HTTPPort: %d, GRPCPort: %d, DatabaseURL: %s, RedisURL: %s, LogLevel: %s, AutoMigrate: %t, MigrationsDir: %s}",
+		c.Env, c.HTTPPort, c.GRPCPort, MaskURL(c.DatabaseURL), MaskURL(c.RedisURL), c.LogLevel, c.AutoMigrate, c.MigrationsDir)
 }
 
 // AgentConfig holds runtime configuration for the Aurora Node Agent.
@@ -74,8 +75,9 @@ func LoadServerConfig() *ServerConfig {
 		RedisURL:    getEnv("AURORA_REDIS_URL", "redis://localhost:6379/0"),
 		MasterKey:   getEnv("AURORA_MASTER_KEY", "aurora-dev-master-key-32-bytes-long!"),
 		JWTSecret:   getEnv("AURORA_JWT_SECRET", "aurora-dev-jwt-secret-key-64-bytes-long-for-hmac-sha256-signing!"),
-		LogLevel:    getEnv("AURORA_LOG_LEVEL", "info"),
-		AutoMigrate: getEnvAsBool("AURORA_AUTO_MIGRATE", true),
+		LogLevel:      getEnv("AURORA_LOG_LEVEL", "info"),
+		AutoMigrate:   getEnvAsBool("AURORA_AUTO_MIGRATE", true),
+		MigrationsDir: getEnv("AURORA_MIGRATIONS_DIR", "/etc/aurora/migrations"),
 	}
 }
 

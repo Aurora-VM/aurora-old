@@ -52,9 +52,48 @@ func (m *Migrator) EnsureSchemaTable(ctx context.Context) error {
 
 // LoadMigrations reads and parses migration files from the migration directory.
 func (m *Migrator) LoadMigrations() ([]Migration, error) {
-	files, err := os.ReadDir(m.migrationsPath)
+	searchPath := m.migrationsPath
+	if searchPath == "" {
+		searchPath = "migrations"
+	}
+
+	hasSQLFiles := func(dir string) bool {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return false
+		}
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !hasSQLFiles(searchPath) {
+		candidates := []string{}
+		if envPath := os.Getenv("AURORA_MIGRATIONS_DIR"); envPath != "" {
+			candidates = append(candidates, envPath)
+		}
+		candidates = append(candidates,
+			"/etc/aurora/migrations",
+			"/var/lib/aurora/migrations",
+			"migrations",
+			"../migrations",
+			"../../migrations",
+			"../../../migrations",
+		)
+		for _, cand := range candidates {
+			if hasSQLFiles(cand) {
+				searchPath = cand
+				break
+			}
+		}
+	}
+
+	files, err := os.ReadDir(searchPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read migrations dir: %w", err)
+		return nil, fmt.Errorf("failed to read migrations dir %s: %w", searchPath, err)
 	}
 
 	migrationMap := make(map[int]*Migration)
@@ -81,7 +120,7 @@ func (m *Migrator) LoadMigrations() ([]Migration, error) {
 			}
 		}
 
-		content, err := os.ReadFile(filepath.Join(m.migrationsPath, f.Name()))
+		content, err := os.ReadFile(filepath.Join(searchPath, f.Name()))
 		if err != nil {
 			return nil, fmt.Errorf("failed to read migration file %s: %w", f.Name(), err)
 		}

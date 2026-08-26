@@ -231,10 +231,10 @@ func main() {
 			defer db.Close()
 
 			if cfg.AutoMigrate {
-				migrator := postgres.NewMigrator(db.Pool, "migrations")
+				migrator := postgres.NewMigrator(db.Pool, cfg.MigrationsDir)
 				applied, err := migrator.Up(ctx)
 				if err != nil {
-					log.Printf("[WARN] Database migration warning: %v", err)
+					log.Printf("[ERROR] Database migration failed: %v", err)
 				} else {
 					log.Printf("[INFO] Database migrations verified. %d applied.", applied)
 				}
