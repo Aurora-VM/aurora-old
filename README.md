@@ -1,3 +1,5 @@
+# MIGRATED TO https://github.com/heyitslumi/solstice
+
 # Project Aurora
 ## Next-Generation Open-Source Distributed Virtualization & VPS Management Platform
 
